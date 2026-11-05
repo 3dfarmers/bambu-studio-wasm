@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bambu slicer test</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; max-width: 760px; }
+  pre { background: #f4f4f4; padding: 12px; white-space: pre-wrap; }
+  #log { max-height: 260px; overflow: auto; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>Bambu Studio slicer in the browser</h1>
+<p>Isolated: <b id="iso"></b> · cores: <b id="cores"></b></p>
+<p><input type="file" id="file" accept=".3mf"> <button id="run">Slice</button></p>
+<pre id="result">waiting…</pre>
+<pre id="log"></pre>
+<script src="/build-wasm/src/bambu-slicer.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+$("iso").textContent = String(self.crossOriginIsolated);
+$("cores").textContent = navigator.hardwareConcurrency;
+const logEl = $("log");
+const t0 = performance.now();
+const stamp = () => ((performance.now() - t0) / 1000).toFixed(1) + "s";
+const log = (s) => { logEl.textContent += `[${stamp()}] ${s}\n`; logEl.scrollTop = 1e9; };
+
+let profilesPromise = fetch("/test/out/profiles.json").then((r) => r.json());
+
+async function slice(bytes, name) {
+  const r = { file: name };
+  const t = performance.now();
+  const mod = await BambuSlicer({
+    print: (s) => log(s), printErr: (s) => log(s),
+    mainScriptUrlOrBlob: "/build-wasm/src/bambu-slicer.js",
+  });
+  r.engineLoadMs = Math.round(performance.now() - t);
+  const tp = performance.now();
+  const profiles = await profilesPromise;
+  for (const [path, text] of Object.entries(profiles)) {
+    const full = "/bambu/resources/profiles/" + path;
+    mod.FS.mkdirTree(full.slice(0, full.lastIndexOf("/")));
+    mod.FS.writeFile(full, text);
+  }
+  mod.FS.mkdirTree("/bambu/bin"); mod.FS.mkdirTree("/in"); mod.FS.mkdirTree("/out");
+  mod.FS.writeFile("/in/p.3mf", bytes);
+  r.profilesMs = Math.round(performance.now() - tp);
+  const ts = performance.now();
+  mod.callMain(["--slice", "1", "--allow-newer-file=1", "--outputdir", "/out", "--export-3mf", "o.gcode.3mf", "/in/p.3mf"]);
+  await new Promise((resolve) => {
+    const iv = setInterval(() => { try { mod.FS.stat("/out/result.json"); clearInterval(iv); setTimeout(resolve, 200); } catch {} }, 100);
+  });
+  r.sliceMs = Math.round(performance.now() - ts);
+  const res = JSON.parse(mod.FS.readFile("/out/result.json", { encoding: "utf8" }));
+  const plate = res.sliced_plates?.[0] || {};
+  r.returnCode = res.return_code;
+  r.printSeconds = plate.total_predication;
+  const s = Math.round(plate.total_predication || 0);
+  r.printTime = `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ${s % 60}s`;
+  r.gcode3mfBytes = mod.FS.stat("/out/o.gcode.3mf").size;
+  r.heapMb = Math.round(mod.HEAP8.length / 1e6);
+  window.lastResult = r;
+  $("result").textContent = JSON.stringify(r, null, 1);
+  return r;
+}
+
+$("run").onclick = async () => {
+  const f = $("file").files[0];
+  if (f) slice(new Uint8Array(await f.arrayBuffer()), f.name);
+};
+// Auto-run with the project the test server provides.
+fetch("/input.3mf").then((r) => r.ok ? r.arrayBuffer() : null).then((b) => b && slice(new Uint8Array(b), "input.3mf"));
+</script>
+</body>
+</html>
