@@ -1,0 +1,7 @@
+deps-install/
+deps-install.tar.gz
+build*/
+bambu/
+artifacts/
+node_modules/
+test/out/
