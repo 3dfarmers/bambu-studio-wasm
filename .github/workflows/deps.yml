@@ -14,7 +14,6 @@ on:
 env:
   EMSDK_VERSION: "3.1.74"
   EMSDK: /opt/emsdk
-  DEPS_KEY: deps-v1-${{ hashFiles('scripts/build-deps.sh', 'patches/onetbb/**') }}
 
 jobs:
   deps:
@@ -47,7 +46,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: deps-install
-          key: ${{ env.DEPS_KEY }}
+          key: deps-v1-${{ hashFiles('scripts/build-deps.sh', 'patches/onetbb/**') }}
           restore-keys: deps-v1-
 
       - name: Build dependencies
@@ -58,7 +57,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: deps-install
-          key: ${{ env.DEPS_KEY }}
+          key: deps-v1-${{ hashFiles('scripts/build-deps.sh', 'patches/onetbb/**') }}
 
       - name: Pack dependencies
         run: tar czf deps-install.tar.gz deps-install && ls -lh deps-install.tar.gz
