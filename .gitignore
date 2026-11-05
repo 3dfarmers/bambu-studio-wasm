@@ -5,3 +5,4 @@ bambu/
 artifacts/
 node_modules/
 test/out/
+test/resources/

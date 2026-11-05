@@ -1,0 +1,88 @@
+name: Engine
+
+# Builds bambu-slicer.js + bambu-slicer.wasm from a Bambu Studio release tag, using
+# the dependencies from the "Dependencies" workflow's cache.
+on:
+  workflow_dispatch:
+    inputs:
+      bambu_tag:
+        description: Bambu Studio tag
+        default: v02.09.01.70
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+
+env:
+  EMSDK_VERSION: "3.1.74"
+  EMSDK: /opt/emsdk
+  BAMBU_TAG: ${{ github.event.inputs.bambu_tag || 'v02.09.01.70' }}
+
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Emscripten
+        id: emsdk
+        uses: actions/cache@v4
+        with:
+          path: /opt/emsdk
+          key: emsdk-${{ env.EMSDK_VERSION }}-${{ hashFiles('scripts/prepare-emscripten-eh.py') }}-v1
+
+      - name: Install Emscripten
+        if: steps.emsdk.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git /opt/emsdk
+          /opt/emsdk/emsdk install "$EMSDK_VERSION"
+          /opt/emsdk/emsdk activate "$EMSDK_VERSION"
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ninja-build python3 cmake m4 texinfo clang
+
+      - name: Restore dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: deps-install
+          key: deps-v1-${{ hashFiles('scripts/build-deps.sh', 'patches/onetbb/**') }}
+          restore-keys: deps-v1-
+
+      - name: Build missing dependencies
+        run: bash scripts/build-deps.sh
+
+      - name: Image libraries (Emscripten ports, native wasm exceptions + threads)
+        run: |
+          source "$EMSDK/emsdk_env.sh"
+          python3 scripts/prepare-emscripten-eh.py --emsdk "$EMSDK"
+          embuilder build zlib-mt-wasm-sjlj libpng-mt-wasm-sjlj libjpeg-mt-wasm-sjlj
+          L="$EMSDK/upstream/emscripten/cache/sysroot/lib/wasm32-emscripten"
+          cp "$L/libz-mt-wasm-sjlj.a" "$L/libz.a"
+          cp "$L/libpng-mt-wasm-sjlj.a" "$L/libpng.a"
+          cp "$L/libjpeg-mt-wasm-sjlj.a" "$L/libjpeg.a"
+
+      - name: Bambu Studio source + preparation
+        run: bash scripts/local-build.sh source
+
+      - name: Configure
+        run: bash scripts/local-build.sh configure
+
+      - name: Build
+        run: bash scripts/local-build.sh build
+
+      - name: Package
+        run: |
+          mkdir -p artifacts
+          cp build-wasm/src/bambu-slicer.js build-wasm/src/bambu-slicer.wasm artifacts/
+          cp bambu/wasm-gen/stubbed-functions.txt artifacts/
+          echo "$BAMBU_TAG" > artifacts/BAMBU_VERSION
+          ls -l artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bambu-slicer-${{ env.BAMBU_TAG }}
+          path: artifacts/
+          retention-days: 30
