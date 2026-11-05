@@ -15,6 +15,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALL="${DEPS_INSTALL:-$ROOT/deps-install}"
 WORK="${DEPS_WORK:-/tmp/bsw-deps}"
 JOBS="${JOBS:-$(nproc)}"
+# CMake 4 refuses projects that ask for a minimum below 3.5 (Expat, NLopt, libnoise).
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
 CXXF="-fwasm-exceptions -pthread"
 CF="-sSUPPORT_LONGJMP=wasm -pthread"
 mkdir -p "$INSTALL" "$WORK"
